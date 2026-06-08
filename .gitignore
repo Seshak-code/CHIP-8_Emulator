@@ -1,0 +1,15 @@
+# Compiled binaries
+play
+build/
+bin/
+obj/
+
+# ROM files
+*.ch8
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# VS Code directory (optional, but usually kept local)
+.vscode/
