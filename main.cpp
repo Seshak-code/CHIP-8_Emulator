@@ -169,6 +169,90 @@ const array<int, 16> keymap = {{
     SDL_SCANCODE_V
 }};
 
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+#endif
+
+// Globals for WebAssembly / main loop callback
+Chip8Emulator* global_emulator = nullptr;
+Chip8* global_cpu = nullptr;
+bool global_running = true;
+chrono::milliseconds global_duration(16);
+
+void run_loop_step()
+{
+    if (global_cpu == nullptr || global_emulator == nullptr)
+        return;
+
+    auto x = global_cpu->program_counter; // debugging
+
+    // Emulation Cycle
+    SDL_Event event;
+    global_cpu->cycle();
+
+    char hex_string[20];
+    if(x != global_cpu->program_counter)
+    {
+        sprintf(hex_string, "%X", global_cpu->current_opcode); //convert number to hex
+        cout << "debugging message: 0x" << hex_string << endl; 
+    }
+    
+    while( SDL_PollEvent(&event) > 0 )
+    {
+        switch(event.type)
+        {
+            case SDL_QUIT:
+            {
+                global_running = false;
+                break;
+            }
+            case SDL_KEYDOWN:
+                if (event.key.keysym.scancode == SDL_SCANCODE_ESCAPE) 
+                {
+                    global_running = false;
+                }
+                for (int i = 0; i < 16; ++i) {
+                    if (event.key.keysym.scancode == keymap[i]) {
+                        global_cpu->keys[i] = 1;
+                    }
+                }
+                break;
+            case SDL_KEYUP:
+                for (int i = 0; i < 16; ++i) {
+                    if (event.key.keysym.scancode == keymap[i]) {
+                        global_cpu->keys[i] = 0;
+                    }
+                }
+                break;
+            default:
+                break;
+        }   
+    }
+
+    global_emulator->clear_window();
+    buildTexture(*global_emulator, *global_cpu);
+    SDL_Rect dest = {0, 0, 640, 320};
+    SDL_RenderCopy(global_emulator->getSDL_Renderer(), global_emulator->getSDL_Texture() , nullptr, &dest);
+    global_emulator->present_render();
+}
+
+extern "C" {
+#ifdef __EMSCRIPTEN__
+    EMSCRIPTEN_KEEPALIVE
+#endif
+    void load_rom_data(const uint8_t* data, int size) {
+        if (global_cpu != nullptr) {
+            global_cpu->init();
+            for (int i = 0; i < size && (0x200 + i) < 4096; ++i) {
+                global_cpu->memory[0x200 + i] = data[i];
+            }
+            std::cout << "Loaded ROM data directly: " << size << " bytes." << std::endl;
+        }
+    }
+}
+
+
+
 int main(int argc, char* argv[]) 
 {
     const char* rom_path = "test_opcode.ch8";
@@ -193,71 +277,27 @@ int main(int argc, char* argv[])
         cpu.rpl_user_flags[i] = rand() & 0x3F;
 
 
-
+#ifndef __EMSCRIPTEN__
     loadROM(rom_path, cpu);
+#endif
+
+    // Setup global pointers for Emscripten loop callback
+    global_emulator = &emulator;
+    global_cpu = &cpu;
+    global_running = true;
+    global_duration = duration;
+
     cout << "Emulator cycle begins" << endl;
-    while(running)
+
+#ifdef __EMSCRIPTEN__
+    emscripten_set_main_loop(run_loop_step, 0, 1);
+#else
+    while(global_running)
     {
-        auto x = cpu.program_counter; // debugging
-
-        // Emulation Cycle
-        SDL_Event event;
-        cpu.cycle();
-
-        char hex_string[20];
-        if(x != cpu.program_counter)
-        {
-            sprintf(hex_string, "%X", cpu.current_opcode); //convert number to hex
-            cout << "debugging message: 0x" << hex_string << endl; 
-        }
-        
-        while( SDL_PollEvent(&event) > 0 )
-        {
-            switch(event.type)
-            {
-                case SDL_QUIT:
-                {
-                    //cout << "quit";
-                    running = false;
-                    break;
-                }
-                case SDL_KEYDOWN:
-                    if (event.key.keysym.scancode == SDL_SCANCODE_ESCAPE) 
-                    {
-                        running = false;
-                    }
-                    for (int i = 0; i < 16; ++i) {
-                        if (event.key.keysym.scancode == keymap[i]) {
-                            cpu.keys[i] = 1;
-                        }
-                    }
-                    break;
-                case SDL_KEYUP:
-                    for (int i = 0; i < 16; ++i) {
-                        if (event.key.keysym.scancode == keymap[i]) {
-                            cpu.keys[i] = 0;
-                        }
-                    }
-                    break;
-                default:
-                    //cout << "failure";
-                
-            }   
-        }
-
-        emulator.clear_window();
-
-        buildTexture(emulator, cpu); //lol broken
-
-        SDL_Rect dest = {0, 0, 640, 320};
-
-        SDL_RenderCopy(emulator.getSDL_Renderer(),emulator.getSDL_Texture() , nullptr, &dest);
-        emulator.present_render();
-
-        this_thread::sleep_for(duration);
+        run_loop_step();
+        this_thread::sleep_for(global_duration);
     }
-
-
+#endif
 
     return 0;
 

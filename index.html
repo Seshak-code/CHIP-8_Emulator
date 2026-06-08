@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CHIP-8 & SCHIP WebAssembly Emulator</title>
+    <style>
+        :root {
+            --bg-color: #0b0f19;
+            --container-bg: rgba(17, 24, 39, 0.7);
+            --border-color: rgba(255, 255, 255, 0.08);
+            --accent-color: #3b82f6;
+            --accent-glow: rgba(59, 130, 246, 0.4);
+            --text-color: #f3f4f6;
+            --text-muted: #9ca3af;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            overflow-x: hidden;
+            box-sizing: border-box;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 24px;
+        }
+
+        .header h1 {
+            font-size: 2.2rem;
+            font-weight: 800;
+            margin: 0 0 8px 0;
+            background: linear-gradient(135deg, #60a5fa, #3b82f6);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            letter-spacing: -0.025em;
+        }
+
+        .header p {
+            color: var(--text-muted);
+            margin: 0;
+            font-size: 0.95rem;
+        }
+
+        .main-container {
+            background: var(--container-bg);
+            backdrop-filter: blur(16px);
+            border: 1px solid var(--border-color);
+            border-radius: 24px;
+            padding: 32px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 24px;
+            max-width: 800px;
+            width: 100%;
+            box-sizing: border-box;
+        }
+
+        .emulator-screen-wrapper {
+            position: relative;
+            background: #000;
+            border-radius: 16px;
+            overflow: hidden;
+            border: 2px solid var(--border-color);
+            box-shadow: 0 0 30px rgba(0, 0, 0, 0.5);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 640px;
+            height: 320px;
+            max-width: 100%;
+        }
+
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+            image-rendering: pixelated;
+        }
+
+        .drop-zone {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(11, 15, 25, 0.9);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            border: 3px dashed var(--accent-color);
+            border-radius: 14px;
+            transition: all 0.3s ease;
+            cursor: pointer;
+            z-index: 10;
+        }
+
+        .drop-zone:hover, .drop-zone.dragover {
+            background: rgba(59, 130, 246, 0.15);
+            box-shadow: inset 0 0 20px rgba(59, 130, 246, 0.2);
+        }
+
+        .drop-zone-content {
+            text-align: center;
+            pointer-events: none;
+        }
+
+        .drop-zone-icon {
+            font-size: 3rem;
+            margin-bottom: 12px;
+        }
+
+        .drop-zone-text {
+            font-size: 1.1rem;
+            font-weight: 600;
+            margin-bottom: 4px;
+        }
+
+        .drop-zone-subtext {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+        }
+
+        .controls-panel {
+            width: 100%;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 24px;
+        }
+
+        @media (max-width: 680px) {
+            .controls-panel {
+                grid-template-columns: 1fr;
+            }
+            .emulator-screen-wrapper {
+                height: auto;
+                aspect-ratio: 2/1;
+            }
+        }
+
+        .card {
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            padding: 18px;
+        }
+
+        .card-title {
+            font-size: 1rem;
+            font-weight: 700;
+            margin: 0 0 12px 0;
+            color: #60a5fa;
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 6px;
+        }
+
+        .key-map-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 8px;
+        }
+
+        .key-pair {
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 6px 4px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            font-size: 0.75rem;
+        }
+
+        .key-pair span {
+            font-weight: bold;
+            color: var(--text-color);
+        }
+
+        .key-pair .chip8-key {
+            color: #f59e0b;
+            font-size: 0.85rem;
+        }
+
+        .credits {
+            margin-top: 32px;
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            text-align: center;
+            max-width: 600px;
+            line-height: 1.5;
+        }
+
+        .credits a {
+            color: #60a5fa;
+            text-decoration: none;
+            transition: color 0.2s ease;
+        }
+
+        .credits a:hover {
+            color: #3b82f6;
+            text-decoration: underline;
+        }
+
+        .hidden {
+            display: none !important;
+        }
+
+        input[type="file"] {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <h1>CHIP-8 & SuperCHIP Emulator</h1>
+        <p>A WebAssembly port compiled from C++ using Emscripten</p>
+    </div>
+
+    <div class="main-container">
+        <div class="emulator-screen-wrapper">
+            <canvas id="canvas" oncontextmenu="event.preventDefault()"></canvas>
+            
+            <div id="drop-zone" class="drop-zone">
+                <div class="drop-zone-content">
+                    <div class="drop-zone-icon">🎮</div>
+                    <div class="drop-zone-text">Drag & Drop .ch8 ROM here</div>
+                    <div class="drop-zone-subtext">or click to browse local files</div>
+                </div>
+            </div>
+        </div>
+
+        <input type="file" id="file-input" accept=".ch8" />
+
+        <div class="controls-panel">
+            <div class="card">
+                <div class="card-title">Keyboard Mappings</div>
+                <div class="key-map-grid">
+                    <div class="key-pair">
+                        <span class="chip8-key">1</span>
+                        <span>Key: 1</span>
+                    </div>
+                    <div class="key-pair">
+                        <span class="chip8-key">2</span>
+                        <span>Key: 2</span>
+                    </div>
+                    <div class="key-pair">
+                        <span class="chip8-key">3</span>
+                        <span>Key: 3</span>
+                    </div>
+                    <div class="key-pair">
+                        <span class="chip8-key">C</span>
+                        <span>Key: 4</span>
+                    </div>
+                    <div class="key-pair">
+                        <span class="chip8-key">4</span>
+                        <span>Key: Q</span>
+                    </div>
+                    <div class="key-pair">
+                        <span class="chip8-key">5</span>
+                        <span>Key: W</span>
+                    </div>
+                    <div class="key-pair">
+                        <span class="chip8-key">6</span>
+                        <span>Key: E</span>
+                    </div>
+                    <div class="key-pair">
+                        <span class="chip8-key">D</span>
+                        <span>Key: R</span>
+                    </div>
+                    <div class="key-pair">
+                        <span class="chip8-key">7</span>
+                        <span>Key: A</span>
+                    </div>
+                    <div class="key-pair">
+                        <span class="chip8-key">8</span>
+                        <span>Key: S</span>
+                    </div>
+                    <div class="key-pair">
+                        <span class="chip8-key">9</span>
+                        <span>Key: D</span>
+                    </div>
+                    <div class="key-pair">
+                        <span class="chip8-key">E</span>
+                        <span>Key: F</span>
+                    </div>
+                    <div class="key-pair">
+                        <span class="chip8-key">A</span>
+                        <span>Key: Z</span>
+                    </div>
+                    <div class="key-pair">
+                        <span class="chip8-key">0</span>
+                        <span>Key: X</span>
+                    </div>
+                    <div class="key-pair">
+                        <span class="chip8-key">B</span>
+                        <span>Key: C</span>
+                    </div>
+                    <div class="key-pair">
+                        <span class="chip8-key">F</span>
+                        <span>Key: V</span>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="card">
+                <div class="card-title">Instructions</div>
+                <p style="margin: 0 0 10px 0; font-size: 0.85rem; line-height: 1.4; color: var(--text-muted);">
+                    Load any standard <strong>CHIP-8</strong> or <strong>SuperCHIP (SCHIP)</strong> ROM file to begin playing.
+                </p>
+                <ul style="margin: 0; padding-left: 18px; font-size: 0.85rem; color: var(--text-muted); line-height: 1.5;">
+                    <li>Use the keys shown on the mapping grid to play.</li>
+                    <li>Press <kbd style="background: rgba(255,255,255,0.1); padding: 2px 4px; border-radius: 4px;">ESC</kbd> to halt execution.</li>
+                    <li>Drag a new ROM into the window at any time to switch games.</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+
+    <div class="credits">
+        Developed in C++ with WebAssembly compilation via Emscripten.<br>
+        Archival Credits: <a href="http://devernay.free.fr/hacks/chip8/C8tech10.html" target="_blank">Cowgod's Reference</a> | <a href="https://tobiasvl.github.io/blog/write-a-chip-8-emulator/" target="_blank">Tobias V. Langhoff Guide</a> | <a href="https://www.multigesture.net/articles/how-to-write-an-emulator-chip-8-interpreter/" target="_blank">Laurence Muller (Multigesture)</a>
+    </div>
+
+    <script>
+        var Module = {
+            canvas: (function() {
+                var canvas = document.getElementById('canvas');
+                return canvas;
+            })(),
+            onRuntimeInitialized: function() {
+                console.log("Emscripten WebAssembly runtime loaded.");
+            }
+        };
+
+        const dropZone = document.getElementById('drop-zone');
+        const fileInput = document.getElementById('file-input');
+
+        // Trigger file select click
+        dropZone.addEventListener('click', () => {
+            fileInput.click();
+        });
+
+        fileInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) handleFile(file);
+        });
+
+        // Drag & Drop handlers
+        dropZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropZone.classList.add('dragover');
+        });
+
+        dropZone.addEventListener('dragleave', () => {
+            dropZone.classList.remove('dragover');
+        });
+
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropZone.classList.remove('dragover');
+            const file = e.dataTransfer.files[0];
+            if (file) handleFile(file);
+        });
+
+        function handleFile(file) {
+            const reader = new FileReader();
+            reader.onload = function(event) {
+                const arrayBuffer = event.target.result;
+                const uint8Array = new Uint8Array(arrayBuffer);
+                
+                // Hide overlay
+                dropZone.classList.add('hidden');
+                
+                // Allocate space and load data into WASM heap
+                const ptr = Module._malloc(uint8Array.length);
+                Module.HEAPU8.set(uint8Array, ptr);
+                Module._load_rom_data(ptr, uint8Array.length);
+                Module._free(ptr);
+
+                // Give focus to canvas
+                Module.canvas.focus();
+            };
+            reader.readAsArrayBuffer(file);
+        }
+    </script>
+    <script src="play.js"></script>
+</body>
+</html>
